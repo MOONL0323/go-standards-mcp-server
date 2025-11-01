@@ -1,0 +1,105 @@
+# Standard Mode - Balanced Standards for General Projects
+# Suitable for: Most production projects, team collaborations, standard applications
+
+linters:
+  enable-all: false
+  enable:
+    - gofmt
+    - goimports
+    - govet
+    - staticcheck
+    - gosec
+    - errcheck
+    - ineffassign
+    - unused
+    - deadcode
+    - typecheck
+    - gosimple
+    - gocyclo
+    - dupl
+    - goconst
+    - misspell
+    - unconvert
+    - bodyclose
+    - errorlint
+    - exportloopref
+    - revive
+
+linters-settings:
+  gocyclo:
+    min-complexity: 10
+  
+  lll:
+    line-length: 120
+  
+  dupl:
+    threshold: 100
+  
+  goconst:
+    min-len: 3
+    min-occurrences: 3
+  
+  misspell:
+    locale: US
+  
+  govet:
+    check-shadowing: true
+  
+  staticcheck:
+    checks: ["all", "-ST1000", "-ST1003"]
+  
+  gosec:
+    severity: medium
+    confidence: medium
+    excludes:
+      - G104  # Audit errors not checked (too noisy)
+  
+  errcheck:
+    check-type-assertions: true
+    check-blank: false
+  
+  revive:
+    severity: warning
+    confidence: 0.8
+    rules:
+      - name: blank-imports
+      - name: context-as-argument
+      - name: dot-imports
+      - name: error-return
+      - name: error-strings
+      - name: error-naming
+      - name: exported
+      - name: if-return
+      - name: increment-decrement
+      - name: var-naming
+      - name: var-declaration
+      - name: range
+      - name: receiver-naming
+      - name: time-naming
+      - name: indent-error-flow
+      - name: errorf
+
+issues:
+  exclude-use-default: true
+  max-issues-per-linter: 50
+  max-same-issues: 3
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - dupl
+        - gosec
+        - goconst
+  
+run:
+  timeout: 5m
+  tests: true
+  skip-dirs:
+    - vendor
+    - tmp
+  skip-files:
+    - "mock_.*\\.go$"
+
+output:
+  format: colored-line-number
+  print-issued-lines: true
+  print-linter-name: true

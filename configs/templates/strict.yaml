@@ -1,0 +1,135 @@
+# Strict Mode - Highest Standards for Critical Systems
+# Suitable for: Production systems, security-critical applications, financial systems
+
+linters:
+  enable-all: false
+  enable:
+    - gofmt
+    - goimports
+    - govet
+    - staticcheck
+    - gosec
+    - errcheck
+    - ineffassign
+    - unused
+    - deadcode
+    - varcheck
+    - typecheck
+    - gosimple
+    - gocyclo
+    - dupl
+    - goconst
+    - gocognit
+    - nestif
+    - lll
+    - misspell
+    - unparam
+    - unconvert
+    - prealloc
+    - bodyclose
+    - noctx
+    - errorlint
+    - exportloopref
+    - gocritic
+    - revive
+
+linters-settings:
+  gocyclo:
+    min-complexity: 5
+  
+  gocognit:
+    min-complexity: 5
+  
+  nestif:
+    min-complexity: 3
+  
+  lll:
+    line-length: 100
+  
+  dupl:
+    threshold: 50
+  
+  goconst:
+    min-len: 2
+    min-occurrences: 2
+  
+  misspell:
+    locale: US
+  
+  govet:
+    check-shadowing: true
+    enable-all: true
+  
+  staticcheck:
+    checks: ["all"]
+  
+  gosec:
+    severity: medium
+    confidence: medium
+    excludes: []
+  
+  errcheck:
+    check-type-assertions: true
+    check-blank: true
+  
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - experimental
+      - opinionated
+      - performance
+      - style
+    disabled-checks:
+      - whyNoLint
+  
+  revive:
+    severity: warning
+    confidence: 0.8
+    rules:
+      - name: blank-imports
+      - name: context-as-argument
+      - name: dot-imports
+      - name: error-return
+      - name: error-strings
+      - name: error-naming
+      - name: exported
+      - name: if-return
+      - name: increment-decrement
+      - name: var-naming
+      - name: var-declaration
+      - name: package-comments
+      - name: range
+      - name: receiver-naming
+      - name: time-naming
+      - name: unexported-return
+      - name: indent-error-flow
+      - name: errorf
+      - name: empty-block
+      - name: superfluous-else
+      - name: unused-parameter
+      - name: unreachable-code
+      - name: redefines-builtin-id
+
+issues:
+  exclude-use-default: false
+  max-issues-per-linter: 0
+  max-same-issues: 0
+  
+run:
+  timeout: 5m
+  tests: true
+  build-tags:
+    - integration
+  skip-dirs:
+    - vendor
+    - tmp
+    - test/testdata
+  skip-files:
+    - ".*_test\\.go$"
+    - "mock_.*\\.go$"
+
+output:
+  format: colored-line-number
+  print-issued-lines: true
+  print-linter-name: true
+  sort-results: true

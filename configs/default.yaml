@@ -1,0 +1,53 @@
+server:
+  mode: stdio  # stdio or http
+  port: 8080
+  host: 0.0.0.0
+
+log:
+  level: info  # debug, info, warn, error
+  output: stdout
+  format: json
+
+analyzer:
+  timeout: 300  # seconds
+  concurrent_limit: 10
+  temp_dir: ./tmp
+
+linters:
+  golangci_lint:
+    enabled: true
+    timeout: 5m
+    config_path: ""
+  staticcheck:
+    enabled: true
+  gosec:
+    enabled: true
+  govet:
+    enabled: true
+
+storage:
+  type: sqlite  # sqlite or postgres
+  sqlite:
+    path: ./data/mcp_server.db
+  postgres:
+    host: localhost
+    port: 5432
+    user: mcp_user
+    password: mcp_password
+    database: mcp_server
+    sslmode: disable
+
+cache:
+  enabled: false
+  type: redis
+  redis:
+    addr: localhost:6379
+    password: ""
+    db: 0
+
+report:
+  output_dir: ./reports
+  formats:
+    - json
+    - markdown
+  keep_days: 30
