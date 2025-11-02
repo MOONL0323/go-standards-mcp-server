@@ -1,6 +1,6 @@
 module github.com/MOONL0323/go-standards-mcp-server
 
-go 1.23.2
+go 1.24.1
 
 require (
 	github.com/google/uuid v1.6.0
@@ -12,6 +12,7 @@ require (
 require (
 	github.com/fsnotify/fsnotify v1.7.0 // indirect
 	github.com/hashicorp/hcl v1.0.0 // indirect
+	github.com/ledongthuc/pdf v0.0.0-20250511090121-5959a4027728 // indirect
 	github.com/magiconair/properties v1.8.7 // indirect
 	github.com/mitchellh/mapstructure v1.5.0 // indirect
 	github.com/pelletier/go-toml/v2 v2.1.0 // indirect

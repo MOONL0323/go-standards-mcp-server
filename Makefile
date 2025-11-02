@@ -13,11 +13,19 @@ install: ## Install dependencies
 	go mod download
 	go mod tidy
 
-build: ## Build the application
-	@echo "Building $(BINARY_NAME)..."
+build: ## Build MCP server
+	@echo "Building MCP server..."
 	@mkdir -p $(BUILD_DIR)
 	go build -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd/server
 	@echo "Build complete: $(BUILD_DIR)/$(BINARY_NAME)"
+
+build-cli: ## Build CLI tool
+	@echo "Building CLI tool..."
+	@mkdir -p $(BUILD_DIR)
+	go build -o $(BUILD_DIR)/go-standards ./cmd/cli
+	@echo "Build complete: $(BUILD_DIR)/go-standards"
+
+build-all: build build-cli ## Build both MCP server and CLI tool
 
 run: ## Run the application in stdio mode
 	@echo "Running $(BINARY_NAME) in stdio mode..."

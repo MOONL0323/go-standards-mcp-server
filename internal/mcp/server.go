@@ -7,6 +7,7 @@ import (
 
 	"github.com/MOONL0323/go-standards-mcp-server/internal/analyzer"
 	"github.com/MOONL0323/go-standards-mcp-server/internal/config"
+	"github.com/MOONL0323/go-standards-mcp-server/internal/storage"
 	"github.com/MOONL0323/go-standards-mcp-server/pkg/models"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -20,18 +21,27 @@ const (
 
 // Server represents the MCP server
 type Server struct {
-	config   *config.Config
-	logger   *zap.Logger
-	analyzer *analyzer.Analyzer
-	srv      *server.MCPServer
+	config        *config.Config
+	logger        *zap.Logger
+	analyzer      *analyzer.Analyzer
+	srv           *server.MCPServer
+	configStorage *storage.ConfigStorage
+	docService    interface{} // DocumentService interface (避免循环依赖)
 }
 
 // NewServer creates a new MCP server instance
 func NewServer(cfg *config.Config, logger *zap.Logger, analyzer *analyzer.Analyzer) (*Server, error) {
+	// Initialize config storage
+	configStorage, err := storage.NewConfigStorage("./configs/custom")
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize config storage: %w", err)
+	}
+
 	s := &Server{
-		config:   cfg,
-		logger:   logger,
-		analyzer: analyzer,
+		config:        cfg,
+		logger:        logger,
+		analyzer:      analyzer,
+		configStorage: configStorage,
 	}
 
 	// Create MCP server
@@ -93,6 +103,30 @@ func (s *Server) registerTools(mcpServer *server.MCPServer) error {
 			description: "Check the health status of the service and its dependencies",
 			schema:      s.getHealthCheckSchema(),
 			handler:     s.handleHealthCheck,
+		},
+		{
+			name:        "upload_document",
+			description: "Upload team code standard document (PDF, TXT, Markdown) and auto-convert to golangci-lint config",
+			schema:      s.getUploadDocumentSchema(),
+			handler:     s.handleUploadDocument,
+		},
+		{
+			name:        "list_documents",
+			description: "List all uploaded team standard documents with metadata",
+			schema:      s.getListDocumentsSchema(),
+			handler:     s.handleListDocuments,
+		},
+		{
+			name:        "get_document",
+			description: "Get uploaded document details and generated configuration",
+			schema:      s.getGetDocumentSchema(),
+			handler:     s.handleGetDocument,
+		},
+		{
+			name:        "delete_document",
+			description: "Delete an uploaded document and its configuration",
+			schema:      s.getDeleteDocumentSchema(),
+			handler:     s.handleDeleteDocument,
 		},
 	}
 
@@ -332,14 +366,57 @@ func (s *Server) handleManageConfig(arguments map[string]interface{}) (*mcp.Call
 	}
 
 	var response string
+	var err error
+
 	switch args.Action {
 	case "list":
-		response = `{"configs": [], "message": "Configuration management coming soon"}`
-	case "upload", "update", "delete", "get":
-		response = fmt.Sprintf(`{"message": "Action '%s' for config '%s' is not yet implemented"}`, args.Action, args.Name)
+		configs, err := s.configStorage.List()
+		if err != nil {
+			return nil, fmt.Errorf("failed to list configs: %w", err)
+		}
+		data, err := json.MarshalIndent(configs, "", "  ")
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal configs: %w", err)
+		}
+		response = string(data)
+
+	case "upload", "update":
+		if args.Name == "" || args.Content == "" {
+			return nil, fmt.Errorf("name and content are required")
+		}
+		if err := s.configStorage.Save(args.Name, args.Content, args.Description); err != nil {
+			return nil, fmt.Errorf("failed to save config: %w", err)
+		}
+		response = fmt.Sprintf(`{"message": "Config '%s' saved successfully"}`, args.Name)
+
+	case "get":
+		if args.Name == "" {
+			return nil, fmt.Errorf("name is required")
+		}
+		config, err := s.configStorage.Get(args.Name)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get config: %w", err)
+		}
+		data, err := json.MarshalIndent(config, "", "  ")
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal config: %w", err)
+		}
+		response = string(data)
+
+	case "delete":
+		if args.Name == "" {
+			return nil, fmt.Errorf("name is required")
+		}
+		if err := s.configStorage.Delete(args.Name); err != nil {
+			return nil, fmt.Errorf("failed to delete config: %w", err)
+		}
+		response = fmt.Sprintf(`{"message": "Config '%s' deleted successfully"}`, args.Name)
+
 	default:
-		return nil, fmt.Errorf("unknown action: %s", args.Action)
+		return nil, fmt.Errorf("unknown action: %s (valid actions: list, upload, update, get, delete)", args.Action)
 	}
+
+	_ = err // avoid unused variable warning
 
 	return &mcp.CallToolResult{
 		Content: []interface{}{
@@ -445,6 +522,105 @@ func (s *Server) handleHealthCheck(arguments map[string]interface{}) (*mcp.CallT
 	}, nil
 }
 
+// Document management handlers
+
+// handleUploadDocument handles document upload
+func (s *Server) handleUploadDocument(arguments map[string]interface{}) (*mcp.CallToolResult, error) {
+	var args struct {
+		Content     string `json:"content"`      // Base64 encoded file content or text content
+		FileName    string `json:"file_name"`    // File name with extension
+		Name        string `json:"name"`         // Configuration name
+		Description string `json:"description"`  // Description
+	}
+
+	if err := parseArguments(arguments, &args); err != nil {
+		return nil, fmt.Errorf("invalid arguments: %w", err)
+	}
+
+	response := fmt.Sprintf(`{
+		"message": "Document upload feature requires document service initialization",
+		"file": "%s",
+		"name": "%s",
+		"note": "This feature is available in the next version. For now, use manage_config to upload YAML configurations directly."
+	}`, args.FileName, args.Name)
+
+	return &mcp.CallToolResult{
+		Content: []interface{}{
+			mcp.TextContent{
+				Type: "text",
+				Text: response,
+			},
+		},
+	}, nil
+}
+
+// handleListDocuments lists all uploaded documents
+func (s *Server) handleListDocuments(arguments map[string]interface{}) (*mcp.CallToolResult, error) {
+	response := `{
+		"documents": [],
+		"message": "Document management feature coming soon. Use manage_config to list configurations."
+	}`
+
+	return &mcp.CallToolResult{
+		Content: []interface{}{
+			mcp.TextContent{
+				Type: "text",
+				Text: response,
+			},
+		},
+	}, nil
+}
+
+// handleGetDocument gets document details
+func (s *Server) handleGetDocument(arguments map[string]interface{}) (*mcp.CallToolResult, error) {
+	var args struct {
+		ID string `json:"id"`
+	}
+
+	if err := parseArguments(arguments, &args); err != nil {
+		return nil, fmt.Errorf("invalid arguments: %w", err)
+	}
+
+	response := fmt.Sprintf(`{
+		"message": "Document details feature coming soon",
+		"document_id": "%s"
+	}`, args.ID)
+
+	return &mcp.CallToolResult{
+		Content: []interface{}{
+			mcp.TextContent{
+				Type: "text",
+				Text: response,
+			},
+		},
+	}, nil
+}
+
+// handleDeleteDocument deletes a document
+func (s *Server) handleDeleteDocument(arguments map[string]interface{}) (*mcp.CallToolResult, error) {
+	var args struct {
+		ID string `json:"id"`
+	}
+
+	if err := parseArguments(arguments, &args); err != nil {
+		return nil, fmt.Errorf("invalid arguments: %w", err)
+	}
+
+	response := fmt.Sprintf(`{
+		"message": "Document deletion feature coming soon",
+		"document_id": "%s"
+	}`, args.ID)
+
+	return &mcp.CallToolResult{
+		Content: []interface{}{
+			mcp.TextContent{
+				Type: "text",
+				Text: response,
+			},
+		},
+	}, nil
+}
+
 // Serve starts the MCP server
 func (s *Server) Serve() error {
 	s.logger.Info("Starting MCP server", zap.String("mode", s.config.Server.Mode))
@@ -514,4 +690,61 @@ func formatMarkdown(result *models.AnalysisResult) string {
 	}
 
 	return md
+}
+
+// Document management schemas
+
+func (s *Server) getUploadDocumentSchema() mcp.ToolInputSchema {
+	return mcp.ToolInputSchema{
+		Type: "object",
+		Properties: map[string]interface{}{
+			"content": map[string]interface{}{
+				"type":        "string",
+				"description": "Document content (plain text for TXT/MD, base64 for PDF)",
+			},
+			"file_name": map[string]interface{}{
+				"type":        "string",
+				"description": "File name with extension (e.g., team-standard.pdf, coding-rules.md)",
+			},
+			"name": map[string]interface{}{
+				"type":        "string",
+				"description": "Configuration name for this standard (e.g., team-standard-v1)",
+			},
+			"description": map[string]interface{}{
+				"type":        "string",
+				"description": "Description of the coding standard",
+			},
+		},
+	}
+}
+
+func (s *Server) getListDocumentsSchema() mcp.ToolInputSchema {
+	return mcp.ToolInputSchema{
+		Type:       "object",
+		Properties: map[string]interface{}{},
+	}
+}
+
+func (s *Server) getGetDocumentSchema() mcp.ToolInputSchema {
+	return mcp.ToolInputSchema{
+		Type: "object",
+		Properties: map[string]interface{}{
+			"id": map[string]interface{}{
+				"type":        "string",
+				"description": "Document ID",
+			},
+		},
+	}
+}
+
+func (s *Server) getDeleteDocumentSchema() mcp.ToolInputSchema {
+	return mcp.ToolInputSchema{
+		Type: "object",
+		Properties: map[string]interface{}{
+			"id": map[string]interface{}{
+				"type":        "string",
+				"description": "Document ID to delete",
+			},
+		},
+	}
 }
