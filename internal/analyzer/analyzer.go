@@ -1,4 +1,4 @@
-package analyzer
+﻿package analyzer
 
 import (
 	"context"
@@ -8,9 +8,9 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/MOONL0323/go-standards-mcp-server/internal/config"
-	"github.com/MOONL0323/go-standards-mcp-server/pkg/linters"
-	"github.com/MOONL0323/go-standards-mcp-server/pkg/models"
+	"go-standards-mcp-server/internal/config"
+	"go-standards-mcp-server/pkg/linters"
+	"go-standards-mcp-server/pkg/models"
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 )
@@ -179,12 +179,29 @@ func (a *Analyzer) loadConfig(standard, customConfig string) (string, error) {
 	}
 
 	// Use predefined template
-	templatePath := filepath.Join("configs", "templates", fmt.Sprintf("%s.yaml", standard))
-	if _, err := os.Stat(templatePath); err != nil {
-		return "", fmt.Errorf("template not found: %s", standard)
+	// Try multiple paths to find the config file
+	possiblePaths := []string{
+		filepath.Join("configs", "templates", fmt.Sprintf("%s.yaml", standard)),
+		filepath.Join("..", "configs", "templates", fmt.Sprintf("%s.yaml", standard)),
+		filepath.Join(getExecutableDir(), "..", "configs", "templates", fmt.Sprintf("%s.yaml", standard)),
 	}
 
-	return templatePath, nil
+	for _, templatePath := range possiblePaths {
+		if _, err := os.Stat(templatePath); err == nil {
+			return templatePath, nil
+		}
+	}
+
+	return "", fmt.Errorf("template not found: %s (tried: configs/templates/%s.yaml)", standard, standard)
+}
+
+// getExecutableDir returns the directory of the executable
+func getExecutableDir() string {
+	ex, err := os.Executable()
+	if err != nil {
+		return "."
+	}
+	return filepath.Dir(ex)
 }
 
 // runLinters runs all configured linters

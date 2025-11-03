@@ -1,4 +1,4 @@
-package linters
+﻿package linters
 
 import (
 	"context"
@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/MOONL0323/go-standards-mcp-server/pkg/models"
+	"go-standards-mcp-server/pkg/models"
 	"go.uber.org/zap"
 )
 

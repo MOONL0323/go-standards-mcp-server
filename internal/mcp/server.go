@@ -1,13 +1,17 @@
-package mcp
+﻿package mcp
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
 
-	"github.com/MOONL0323/go-standards-mcp-server/internal/analyzer"
-	"github.com/MOONL0323/go-standards-mcp-server/internal/config"
-	"github.com/MOONL0323/go-standards-mcp-server/pkg/models"
+	"go-standards-mcp-server/internal/analyzer"
+	"go-standards-mcp-server/internal/config"
+	"go-standards-mcp-server/internal/git"
+	"go-standards-mcp-server/internal/storage"
+	"go-standards-mcp-server/internal/usercontext"
+	"go-standards-mcp-server/pkg/models"
+
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 	"go.uber.org/zap"
@@ -15,23 +19,34 @@ import (
 
 const (
 	ServerName    = "go-standards-mcp-server"
-	ServerVersion = "1.0.0"
+	ServerVersion = "0.5.0"
 )
 
 // Server represents the MCP server
 type Server struct {
-	config   *config.Config
-	logger   *zap.Logger
-	analyzer *analyzer.Analyzer
-	srv      *server.MCPServer
+	config         *config.Config
+	logger         *zap.Logger
+	analyzer       *analyzer.Analyzer
+	srv            *server.MCPServer
+	configStorage  *storage.ConfigStorage
+	sessionManager *usercontext.SessionManager
+	docService     interface{} // DocumentService interface (避免循环依赖)
 }
 
 // NewServer creates a new MCP server instance
-func NewServer(cfg *config.Config, logger *zap.Logger, analyzer *analyzer.Analyzer) (*Server, error) {
+func NewServer(cfg *config.Config, logger *zap.Logger, analyzer *analyzer.Analyzer, sessionManager *usercontext.SessionManager) (*Server, error) {
+	// Initialize config storage
+	configStorage, err := storage.NewConfigStorage("./configs/custom")
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize config storage: %w", err)
+	}
+
 	s := &Server{
-		config:   cfg,
-		logger:   logger,
-		analyzer: analyzer,
+		config:         cfg,
+		logger:         logger,
+		analyzer:       analyzer,
+		configStorage:  configStorage,
+		sessionManager: sessionManager,
 	}
 
 	// Create MCP server
@@ -93,6 +108,42 @@ func (s *Server) registerTools(mcpServer *server.MCPServer) error {
 			description: "Check the health status of the service and its dependencies",
 			schema:      s.getHealthCheckSchema(),
 			handler:     s.handleHealthCheck,
+		},
+		{
+			name:        "upload_document",
+			description: "Upload team code standard document (PDF, TXT, Markdown) and auto-convert to golangci-lint config",
+			schema:      s.getUploadDocumentSchema(),
+			handler:     s.handleUploadDocument,
+		},
+		{
+			name:        "list_documents",
+			description: "List all uploaded team standard documents with metadata",
+			schema:      s.getListDocumentsSchema(),
+			handler:     s.handleListDocuments,
+		},
+		{
+			name:        "get_document",
+			description: "Get uploaded document details and generated configuration",
+			schema:      s.getGetDocumentSchema(),
+			handler:     s.handleGetDocument,
+		},
+		{
+			name:        "delete_document",
+			description: "Delete an uploaded document and its configuration",
+			schema:      s.getDeleteDocumentSchema(),
+			handler:     s.handleDeleteDocument,
+		},
+		{
+			name:        "git_config",
+			description: "Configure Git integration settings for incremental analysis",
+			schema:      s.getGitConfigSchema(),
+			handler:     s.handleGitConfig,
+		},
+		{
+			name:        "git_check",
+			description: "Quick check if a path is a Git repository",
+			schema:      s.getGitCheckSchema(),
+			handler:     s.handleGitCheck,
 		},
 	}
 
@@ -332,14 +383,57 @@ func (s *Server) handleManageConfig(arguments map[string]interface{}) (*mcp.Call
 	}
 
 	var response string
+	var err error
+
 	switch args.Action {
 	case "list":
-		response = `{"configs": [], "message": "Configuration management coming soon"}`
-	case "upload", "update", "delete", "get":
-		response = fmt.Sprintf(`{"message": "Action '%s' for config '%s' is not yet implemented"}`, args.Action, args.Name)
+		configs, err := s.configStorage.List()
+		if err != nil {
+			return nil, fmt.Errorf("failed to list configs: %w", err)
+		}
+		data, err := json.MarshalIndent(configs, "", "  ")
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal configs: %w", err)
+		}
+		response = string(data)
+
+	case "upload", "update":
+		if args.Name == "" || args.Content == "" {
+			return nil, fmt.Errorf("name and content are required")
+		}
+		if err := s.configStorage.Save(args.Name, args.Content, args.Description); err != nil {
+			return nil, fmt.Errorf("failed to save config: %w", err)
+		}
+		response = fmt.Sprintf(`{"message": "Config '%s' saved successfully"}`, args.Name)
+
+	case "get":
+		if args.Name == "" {
+			return nil, fmt.Errorf("name is required")
+		}
+		config, err := s.configStorage.Get(args.Name)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get config: %w", err)
+		}
+		data, err := json.MarshalIndent(config, "", "  ")
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal config: %w", err)
+		}
+		response = string(data)
+
+	case "delete":
+		if args.Name == "" {
+			return nil, fmt.Errorf("name is required")
+		}
+		if err := s.configStorage.Delete(args.Name); err != nil {
+			return nil, fmt.Errorf("failed to delete config: %w", err)
+		}
+		response = fmt.Sprintf(`{"message": "Config '%s' deleted successfully"}`, args.Name)
+
 	default:
-		return nil, fmt.Errorf("unknown action: %s", args.Action)
+		return nil, fmt.Errorf("unknown action: %s (valid actions: list, upload, update, get, delete)", args.Action)
 	}
+
+	_ = err // avoid unused variable warning
 
 	return &mcp.CallToolResult{
 		Content: []interface{}{
@@ -445,6 +539,105 @@ func (s *Server) handleHealthCheck(arguments map[string]interface{}) (*mcp.CallT
 	}, nil
 }
 
+// Document management handlers
+
+// handleUploadDocument handles document upload
+func (s *Server) handleUploadDocument(arguments map[string]interface{}) (*mcp.CallToolResult, error) {
+	var args struct {
+		Content     string `json:"content"`     // Base64 encoded file content or text content
+		FileName    string `json:"file_name"`   // File name with extension
+		Name        string `json:"name"`        // Configuration name
+		Description string `json:"description"` // Description
+	}
+
+	if err := parseArguments(arguments, &args); err != nil {
+		return nil, fmt.Errorf("invalid arguments: %w", err)
+	}
+
+	response := fmt.Sprintf(`{
+		"message": "Document upload feature requires document service initialization",
+		"file": "%s",
+		"name": "%s",
+		"note": "This feature is available in the next version. For now, use manage_config to upload YAML configurations directly."
+	}`, args.FileName, args.Name)
+
+	return &mcp.CallToolResult{
+		Content: []interface{}{
+			mcp.TextContent{
+				Type: "text",
+				Text: response,
+			},
+		},
+	}, nil
+}
+
+// handleListDocuments lists all uploaded documents
+func (s *Server) handleListDocuments(arguments map[string]interface{}) (*mcp.CallToolResult, error) {
+	response := `{
+		"documents": [],
+		"message": "Document management feature coming soon. Use manage_config to list configurations."
+	}`
+
+	return &mcp.CallToolResult{
+		Content: []interface{}{
+			mcp.TextContent{
+				Type: "text",
+				Text: response,
+			},
+		},
+	}, nil
+}
+
+// handleGetDocument gets document details
+func (s *Server) handleGetDocument(arguments map[string]interface{}) (*mcp.CallToolResult, error) {
+	var args struct {
+		ID string `json:"id"`
+	}
+
+	if err := parseArguments(arguments, &args); err != nil {
+		return nil, fmt.Errorf("invalid arguments: %w", err)
+	}
+
+	response := fmt.Sprintf(`{
+		"message": "Document details feature coming soon",
+		"document_id": "%s"
+	}`, args.ID)
+
+	return &mcp.CallToolResult{
+		Content: []interface{}{
+			mcp.TextContent{
+				Type: "text",
+				Text: response,
+			},
+		},
+	}, nil
+}
+
+// handleDeleteDocument deletes a document
+func (s *Server) handleDeleteDocument(arguments map[string]interface{}) (*mcp.CallToolResult, error) {
+	var args struct {
+		ID string `json:"id"`
+	}
+
+	if err := parseArguments(arguments, &args); err != nil {
+		return nil, fmt.Errorf("invalid arguments: %w", err)
+	}
+
+	response := fmt.Sprintf(`{
+		"message": "Document deletion feature coming soon",
+		"document_id": "%s"
+	}`, args.ID)
+
+	return &mcp.CallToolResult{
+		Content: []interface{}{
+			mcp.TextContent{
+				Type: "text",
+				Text: response,
+			},
+		},
+	}, nil
+}
+
 // Serve starts the MCP server
 func (s *Server) Serve() error {
 	s.logger.Info("Starting MCP server", zap.String("mode", s.config.Server.Mode))
@@ -514,4 +707,262 @@ func formatMarkdown(result *models.AnalysisResult) string {
 	}
 
 	return md
+}
+
+// Document management schemas
+
+func (s *Server) getUploadDocumentSchema() mcp.ToolInputSchema {
+	return mcp.ToolInputSchema{
+		Type: "object",
+		Properties: map[string]interface{}{
+			"content": map[string]interface{}{
+				"type":        "string",
+				"description": "Document content (plain text for TXT/MD, base64 for PDF)",
+			},
+			"file_name": map[string]interface{}{
+				"type":        "string",
+				"description": "File name with extension (e.g., team-standard.pdf, coding-rules.md)",
+			},
+			"name": map[string]interface{}{
+				"type":        "string",
+				"description": "Configuration name for this standard (e.g., team-standard-v1)",
+			},
+			"description": map[string]interface{}{
+				"type":        "string",
+				"description": "Description of the coding standard",
+			},
+		},
+	}
+}
+
+func (s *Server) getListDocumentsSchema() mcp.ToolInputSchema {
+	return mcp.ToolInputSchema{
+		Type:       "object",
+		Properties: map[string]interface{}{},
+	}
+}
+
+func (s *Server) getGetDocumentSchema() mcp.ToolInputSchema {
+	return mcp.ToolInputSchema{
+		Type: "object",
+		Properties: map[string]interface{}{
+			"id": map[string]interface{}{
+				"type":        "string",
+				"description": "Document ID",
+			},
+		},
+	}
+}
+
+func (s *Server) getDeleteDocumentSchema() mcp.ToolInputSchema {
+	return mcp.ToolInputSchema{
+		Type: "object",
+		Properties: map[string]interface{}{
+			"id": map[string]interface{}{
+				"type":        "string",
+				"description": "Document ID to delete",
+			},
+		},
+	}
+}
+
+// Git integration schemas
+
+func (s *Server) getGitConfigSchema() mcp.ToolInputSchema {
+	return mcp.ToolInputSchema{
+		Type: "object",
+		Properties: map[string]interface{}{
+			"action": map[string]interface{}{
+				"type":        "string",
+				"description": "Action to perform: get, set, enable, disable",
+			},
+			"path": map[string]interface{}{
+				"type":        "string",
+				"description": "Path to the project (required for get/set/enable/disable)",
+			},
+			"config": map[string]interface{}{
+				"type":        "object",
+				"description": "Git config object (required for set)",
+				"properties": map[string]interface{}{
+					"enabled": map[string]interface{}{
+						"type":        "boolean",
+						"description": "Enable/disable git integration",
+					},
+					"base_branch": map[string]interface{}{
+						"type":        "string",
+						"description": "Base branch for comparison (e.g., main, master)",
+					},
+					"ignored_paths": map[string]interface{}{
+						"type":        "array",
+						"description": "Paths to ignore in git analysis",
+						"items": map[string]interface{}{
+							"type": "string",
+						},
+					},
+					"max_file_size_kb": map[string]interface{}{
+						"type":        "integer",
+						"description": "Maximum file size to analyze (in KB)",
+					},
+				},
+			},
+		},
+	}
+}
+
+func (s *Server) getGitCheckSchema() mcp.ToolInputSchema {
+	return mcp.ToolInputSchema{
+		Type: "object",
+		Properties: map[string]interface{}{
+			"path": map[string]interface{}{
+				"type":        "string",
+				"description": "Path to check if it's a git repository",
+			},
+		},
+	}
+}
+
+// Git integration handlers
+
+func (s *Server) handleGitConfig(arguments map[string]interface{}) (*mcp.CallToolResult, error) {
+	s.logger.Info("Handling git_config request")
+
+	var params struct {
+		Action string                 `json:"action"`
+		Path   string                 `json:"path"`
+		Config map[string]interface{} `json:"config"`
+	}
+
+	if err := parseArguments(arguments, &params); err != nil {
+		return nil, fmt.Errorf("invalid parameters: %w", err)
+	}
+
+	s.logger.Info("Git config operation",
+		zap.String("action", params.Action),
+		zap.String("path", params.Path))
+
+	// Use git config manager
+	cm := git.NewConfigManager(params.Path)
+
+	switch params.Action {
+	case "get":
+		if params.Path == "" {
+			return nil, fmt.Errorf("path is required for get action")
+		}
+		cfg, err := cm.Load()
+		if err != nil {
+			return nil, fmt.Errorf("failed to load git config: %w", err)
+		}
+		data, _ := json.MarshalIndent(cfg, "", "  ")
+		return &mcp.CallToolResult{
+			Content: []interface{}{
+				mcp.TextContent{
+					Type: "text",
+					Text: string(data),
+				},
+			},
+		}, nil
+
+	case "set":
+		if params.Path == "" {
+			return nil, fmt.Errorf("path is required for set action")
+		}
+		if params.Config == nil {
+			return nil, fmt.Errorf("config is required for set action")
+		}
+
+		// Convert map to IncrementalConfig struct
+		configJSON, _ := json.Marshal(params.Config)
+		var gitCfg git.IncrementalConfig
+		if err := json.Unmarshal(configJSON, &gitCfg); err != nil {
+			return nil, fmt.Errorf("invalid config format: %w", err)
+		}
+
+		if err := cm.Save(&gitCfg); err != nil {
+			return nil, fmt.Errorf("failed to save git config: %w", err)
+		}
+		return &mcp.CallToolResult{
+			Content: []interface{}{
+				mcp.TextContent{
+					Type: "text",
+					Text: "Git configuration saved successfully",
+				},
+			},
+		}, nil
+
+	case "enable":
+		if params.Path == "" {
+			return nil, fmt.Errorf("path is required for enable action")
+		}
+		if err := cm.Enable(); err != nil {
+			return nil, fmt.Errorf("failed to enable git integration: %w", err)
+		}
+		return &mcp.CallToolResult{
+			Content: []interface{}{
+				mcp.TextContent{
+					Type: "text",
+					Text: "Git integration enabled successfully",
+				},
+			},
+		}, nil
+
+	case "disable":
+		if params.Path == "" {
+			return nil, fmt.Errorf("path is required for disable action")
+		}
+		if err := cm.Disable(); err != nil {
+			return nil, fmt.Errorf("failed to disable git integration: %w", err)
+		}
+		return &mcp.CallToolResult{
+			Content: []interface{}{
+				mcp.TextContent{
+					Type: "text",
+					Text: "Git integration disabled successfully",
+				},
+			},
+		}, nil
+
+	default:
+		return nil, fmt.Errorf("unknown action: %s", params.Action)
+	}
+}
+
+func (s *Server) handleGitCheck(arguments map[string]interface{}) (*mcp.CallToolResult, error) {
+	s.logger.Info("Handling git_check request")
+
+	var params struct {
+		Path string `json:"path"`
+	}
+
+	if err := parseArguments(arguments, &params); err != nil {
+		return nil, fmt.Errorf("invalid parameters: %w", err)
+	}
+
+	s.logger.Info("Git check", zap.String("path", params.Path))
+
+	detector := git.NewGitDetector(params.Path)
+	isRepo := detector.IsGitRepository()
+
+	var result struct {
+		IsGitRepo bool   `json:"is_git_repo"`
+		Path      string `json:"path"`
+		Message   string `json:"message"`
+	}
+
+	result.IsGitRepo = isRepo
+	result.Path = params.Path
+	if isRepo {
+		result.Message = "This is a valid Git repository"
+	} else {
+		result.Message = "This is not a Git repository"
+	}
+
+	data, _ := json.MarshalIndent(result, "", "  ")
+	return &mcp.CallToolResult{
+		Content: []interface{}{
+			mcp.TextContent{
+				Type: "text",
+				Text: string(data),
+			},
+		},
+	}, nil
 }

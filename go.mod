@@ -1,9 +1,10 @@
-module github.com/MOONL0323/go-standards-mcp-server
+module go-standards-mcp-server
 
-go 1.23.2
+go 1.24.1
 
 require (
 	github.com/google/uuid v1.6.0
+	github.com/ledongthuc/pdf v0.0.0-20250511090121-5959a4027728
 	github.com/mark3labs/mcp-go v0.5.0
 	github.com/spf13/viper v1.18.2
 	go.uber.org/zap v1.27.0

@@ -1,0 +1,143 @@
+# Team Custom Configuration Example
+# This is a sample custom configuration for your team's coding standards
+
+linters:
+  enable:
+    # Code Quality
+    - govet
+    - errcheck
+    - staticcheck
+    - unused
+    - gosimple
+    - structcheck
+    - varcheck
+    - ineffassign
+    - deadcode
+    
+    # Style
+    - gofmt
+    - goimports
+    - gocritic
+    - revive
+    
+    # Complexity
+    - gocyclo
+    - gocognit
+    - funlen
+    
+    # Performance
+    - prealloc
+    - bodyclose
+    
+    # Security
+    - gosec
+    - gas
+    
+    # Best Practices
+    - goconst
+    - misspell
+    - unconvert
+    - unparam
+    - nakedret
+    
+    # Team Custom Rules
+    - exportloopref
+    - contextcheck
+    - nilerr
+
+linters-settings:
+  # Cyclomatic complexity
+  gocyclo:
+    min-complexity: 10  # Team standard: max complexity 10
+    
+  # Cognitive complexity
+  gocognit:
+    min-complexity: 15
+    
+  # Function length
+  funlen:
+    lines: 80          # Max lines per function
+    statements: 50     # Max statements per function
+    
+  # Error check
+  errcheck:
+    check-type-assertions: true
+    check-blank: true
+    
+  # Security
+  gosec:
+    severity: medium
+    confidence: medium
+    
+  # Naming convention
+  revive:
+    rules:
+      - name: var-naming
+        arguments:
+          - ["ID", "URL", "API", "HTTP", "JSON", "XML"]  # Team acronyms
+      - name: exported
+      - name: error-return
+      - name: error-naming
+      - name: if-return
+      - name: increment-decrement
+      - name: var-declaration
+      - name: package-comments
+      - name: range
+      - name: receiver-naming
+      - name: time-naming
+      - name: unexported-return
+      - name: indent-error-flow
+      - name: errorf
+      
+  # Constants
+  goconst:
+    min-len: 3
+    min-occurrences: 3
+    
+  # Comment requirements
+  gocritic:
+    enabled-checks:
+      - commentFormatting
+      - docStub
+      
+issues:
+  exclude-use-default: false
+  max-issues-per-linter: 0
+  max-same-issues: 0
+  
+  # Exclude specific patterns (customize for your team)
+  exclude-rules:
+    # Allow TODO/FIXME in development
+    - linters:
+        - godox
+      text: "TODO|FIXME"
+      
+    # Allow long lines in tests
+    - path: _test\.go
+      linters:
+        - lll
+        
+    # Allow complex setup functions
+    - source: "func setup"
+      linters:
+        - gocyclo
+        - gocognit
+
+run:
+  timeout: 5m
+  tests: true
+  skip-dirs:
+    - vendor
+    - third_party
+    - testdata
+    - examples
+    - .git
+  skip-files:
+    - ".*\\.pb\\.go$"
+    - ".*\\.gen\\.go$"
+
+output:
+  format: colored-line-number
+  print-issued-lines: true
+  print-linter-name: true
+
