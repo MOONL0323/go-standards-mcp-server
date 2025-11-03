@@ -1,14 +1,17 @@
-package mcp
+﻿package mcp
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
 
-	"github.com/MOONL0323/go-standards-mcp-server/internal/analyzer"
-	"github.com/MOONL0323/go-standards-mcp-server/internal/config"
-	"github.com/MOONL0323/go-standards-mcp-server/internal/storage"
-	"github.com/MOONL0323/go-standards-mcp-server/pkg/models"
+	"go-standards-mcp-server/internal/analyzer"
+	"go-standards-mcp-server/internal/config"
+	"go-standards-mcp-server/internal/git"
+	"go-standards-mcp-server/internal/storage"
+	"go-standards-mcp-server/internal/usercontext"
+	"go-standards-mcp-server/pkg/models"
+
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 	"go.uber.org/zap"
@@ -16,21 +19,22 @@ import (
 
 const (
 	ServerName    = "go-standards-mcp-server"
-	ServerVersion = "1.0.0"
+	ServerVersion = "0.5.0"
 )
 
 // Server represents the MCP server
 type Server struct {
-	config        *config.Config
-	logger        *zap.Logger
-	analyzer      *analyzer.Analyzer
-	srv           *server.MCPServer
-	configStorage *storage.ConfigStorage
-	docService    interface{} // DocumentService interface (避免循环依赖)
+	config         *config.Config
+	logger         *zap.Logger
+	analyzer       *analyzer.Analyzer
+	srv            *server.MCPServer
+	configStorage  *storage.ConfigStorage
+	sessionManager *usercontext.SessionManager
+	docService     interface{} // DocumentService interface (避免循环依赖)
 }
 
 // NewServer creates a new MCP server instance
-func NewServer(cfg *config.Config, logger *zap.Logger, analyzer *analyzer.Analyzer) (*Server, error) {
+func NewServer(cfg *config.Config, logger *zap.Logger, analyzer *analyzer.Analyzer, sessionManager *usercontext.SessionManager) (*Server, error) {
 	// Initialize config storage
 	configStorage, err := storage.NewConfigStorage("./configs/custom")
 	if err != nil {
@@ -38,10 +42,11 @@ func NewServer(cfg *config.Config, logger *zap.Logger, analyzer *analyzer.Analyz
 	}
 
 	s := &Server{
-		config:        cfg,
-		logger:        logger,
-		analyzer:      analyzer,
-		configStorage: configStorage,
+		config:         cfg,
+		logger:         logger,
+		analyzer:       analyzer,
+		configStorage:  configStorage,
+		sessionManager: sessionManager,
 	}
 
 	// Create MCP server
@@ -127,6 +132,18 @@ func (s *Server) registerTools(mcpServer *server.MCPServer) error {
 			description: "Delete an uploaded document and its configuration",
 			schema:      s.getDeleteDocumentSchema(),
 			handler:     s.handleDeleteDocument,
+		},
+		{
+			name:        "git_config",
+			description: "Configure Git integration settings for incremental analysis",
+			schema:      s.getGitConfigSchema(),
+			handler:     s.handleGitConfig,
+		},
+		{
+			name:        "git_check",
+			description: "Quick check if a path is a Git repository",
+			schema:      s.getGitCheckSchema(),
+			handler:     s.handleGitCheck,
 		},
 	}
 
@@ -527,10 +544,10 @@ func (s *Server) handleHealthCheck(arguments map[string]interface{}) (*mcp.CallT
 // handleUploadDocument handles document upload
 func (s *Server) handleUploadDocument(arguments map[string]interface{}) (*mcp.CallToolResult, error) {
 	var args struct {
-		Content     string `json:"content"`      // Base64 encoded file content or text content
-		FileName    string `json:"file_name"`    // File name with extension
-		Name        string `json:"name"`         // Configuration name
-		Description string `json:"description"`  // Description
+		Content     string `json:"content"`     // Base64 encoded file content or text content
+		FileName    string `json:"file_name"`   // File name with extension
+		Name        string `json:"name"`        // Configuration name
+		Description string `json:"description"` // Description
 	}
 
 	if err := parseArguments(arguments, &args); err != nil {
@@ -747,4 +764,205 @@ func (s *Server) getDeleteDocumentSchema() mcp.ToolInputSchema {
 			},
 		},
 	}
+}
+
+// Git integration schemas
+
+func (s *Server) getGitConfigSchema() mcp.ToolInputSchema {
+	return mcp.ToolInputSchema{
+		Type: "object",
+		Properties: map[string]interface{}{
+			"action": map[string]interface{}{
+				"type":        "string",
+				"description": "Action to perform: get, set, enable, disable",
+			},
+			"path": map[string]interface{}{
+				"type":        "string",
+				"description": "Path to the project (required for get/set/enable/disable)",
+			},
+			"config": map[string]interface{}{
+				"type":        "object",
+				"description": "Git config object (required for set)",
+				"properties": map[string]interface{}{
+					"enabled": map[string]interface{}{
+						"type":        "boolean",
+						"description": "Enable/disable git integration",
+					},
+					"base_branch": map[string]interface{}{
+						"type":        "string",
+						"description": "Base branch for comparison (e.g., main, master)",
+					},
+					"ignored_paths": map[string]interface{}{
+						"type":        "array",
+						"description": "Paths to ignore in git analysis",
+						"items": map[string]interface{}{
+							"type": "string",
+						},
+					},
+					"max_file_size_kb": map[string]interface{}{
+						"type":        "integer",
+						"description": "Maximum file size to analyze (in KB)",
+					},
+				},
+			},
+		},
+	}
+}
+
+func (s *Server) getGitCheckSchema() mcp.ToolInputSchema {
+	return mcp.ToolInputSchema{
+		Type: "object",
+		Properties: map[string]interface{}{
+			"path": map[string]interface{}{
+				"type":        "string",
+				"description": "Path to check if it's a git repository",
+			},
+		},
+	}
+}
+
+// Git integration handlers
+
+func (s *Server) handleGitConfig(arguments map[string]interface{}) (*mcp.CallToolResult, error) {
+	s.logger.Info("Handling git_config request")
+
+	var params struct {
+		Action string                 `json:"action"`
+		Path   string                 `json:"path"`
+		Config map[string]interface{} `json:"config"`
+	}
+
+	if err := parseArguments(arguments, &params); err != nil {
+		return nil, fmt.Errorf("invalid parameters: %w", err)
+	}
+
+	s.logger.Info("Git config operation",
+		zap.String("action", params.Action),
+		zap.String("path", params.Path))
+
+	// Use git config manager
+	cm := git.NewConfigManager(params.Path)
+
+	switch params.Action {
+	case "get":
+		if params.Path == "" {
+			return nil, fmt.Errorf("path is required for get action")
+		}
+		cfg, err := cm.Load()
+		if err != nil {
+			return nil, fmt.Errorf("failed to load git config: %w", err)
+		}
+		data, _ := json.MarshalIndent(cfg, "", "  ")
+		return &mcp.CallToolResult{
+			Content: []interface{}{
+				mcp.TextContent{
+					Type: "text",
+					Text: string(data),
+				},
+			},
+		}, nil
+
+	case "set":
+		if params.Path == "" {
+			return nil, fmt.Errorf("path is required for set action")
+		}
+		if params.Config == nil {
+			return nil, fmt.Errorf("config is required for set action")
+		}
+
+		// Convert map to IncrementalConfig struct
+		configJSON, _ := json.Marshal(params.Config)
+		var gitCfg git.IncrementalConfig
+		if err := json.Unmarshal(configJSON, &gitCfg); err != nil {
+			return nil, fmt.Errorf("invalid config format: %w", err)
+		}
+
+		if err := cm.Save(&gitCfg); err != nil {
+			return nil, fmt.Errorf("failed to save git config: %w", err)
+		}
+		return &mcp.CallToolResult{
+			Content: []interface{}{
+				mcp.TextContent{
+					Type: "text",
+					Text: "Git configuration saved successfully",
+				},
+			},
+		}, nil
+
+	case "enable":
+		if params.Path == "" {
+			return nil, fmt.Errorf("path is required for enable action")
+		}
+		if err := cm.Enable(); err != nil {
+			return nil, fmt.Errorf("failed to enable git integration: %w", err)
+		}
+		return &mcp.CallToolResult{
+			Content: []interface{}{
+				mcp.TextContent{
+					Type: "text",
+					Text: "Git integration enabled successfully",
+				},
+			},
+		}, nil
+
+	case "disable":
+		if params.Path == "" {
+			return nil, fmt.Errorf("path is required for disable action")
+		}
+		if err := cm.Disable(); err != nil {
+			return nil, fmt.Errorf("failed to disable git integration: %w", err)
+		}
+		return &mcp.CallToolResult{
+			Content: []interface{}{
+				mcp.TextContent{
+					Type: "text",
+					Text: "Git integration disabled successfully",
+				},
+			},
+		}, nil
+
+	default:
+		return nil, fmt.Errorf("unknown action: %s", params.Action)
+	}
+}
+
+func (s *Server) handleGitCheck(arguments map[string]interface{}) (*mcp.CallToolResult, error) {
+	s.logger.Info("Handling git_check request")
+
+	var params struct {
+		Path string `json:"path"`
+	}
+
+	if err := parseArguments(arguments, &params); err != nil {
+		return nil, fmt.Errorf("invalid parameters: %w", err)
+	}
+
+	s.logger.Info("Git check", zap.String("path", params.Path))
+
+	detector := git.NewGitDetector(params.Path)
+	isRepo := detector.IsGitRepository()
+
+	var result struct {
+		IsGitRepo bool   `json:"is_git_repo"`
+		Path      string `json:"path"`
+		Message   string `json:"message"`
+	}
+
+	result.IsGitRepo = isRepo
+	result.Path = params.Path
+	if isRepo {
+		result.Message = "This is a valid Git repository"
+	} else {
+		result.Message = "This is not a Git repository"
+	}
+
+	data, _ := json.MarshalIndent(result, "", "  ")
+	return &mcp.CallToolResult{
+		Content: []interface{}{
+			mcp.TextContent{
+				Type: "text",
+				Text: string(data),
+			},
+		},
+	}, nil
 }

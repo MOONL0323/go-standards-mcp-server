@@ -1,12 +1,12 @@
-package analyzer
+﻿package analyzer
 
 import (
 	"context"
 	"testing"
 	"time"
 
-	"github.com/MOONL0323/go-standards-mcp-server/internal/config"
-	"github.com/MOONL0323/go-standards-mcp-server/pkg/models"
+	"go-standards-mcp-server/internal/config"
+	"go-standards-mcp-server/pkg/models"
 	"go.uber.org/zap"
 )
 

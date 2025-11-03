@@ -1,4 +1,4 @@
-package main
+﻿package main
 
 import (
 	"context"
@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/MOONL0323/go-standards-mcp-server/internal/analyzer"
-	"github.com/MOONL0323/go-standards-mcp-server/internal/config"
-	"github.com/MOONL0323/go-standards-mcp-server/pkg/models"
+	"go-standards-mcp-server/internal/analyzer"
+	"go-standards-mcp-server/internal/config"
+	"go-standards-mcp-server/pkg/models"
 	"go.uber.org/zap"
 )
 
@@ -25,8 +25,8 @@ var (
 )
 
 const (
-	appName    = "go-standards"
-	appVersion = "1.0.0"
+	appName    = "go-standards-cli"
+	appVersion = "0.5.0"
 )
 
 func main() {
@@ -199,7 +199,7 @@ EXIT CODES:
   0  Analysis successful, no errors found
   1  Analysis failed or errors detected
 
-For more information, visit: https://github.com/MOONL0323/go-standards-mcp-server
+For more information, visit: https://go-standards-mcp-server
 `, appName, appName, appName, appName, appName, appName)
 }
 

@@ -21,9 +21,10 @@ type Config struct {
 
 // ServerConfig contains server-related configuration
 type ServerConfig struct {
-	Mode string `mapstructure:"mode"` // stdio or http
-	Port int    `mapstructure:"port"`
-	Host string `mapstructure:"host"`
+	Mode           string `mapstructure:"mode"`            // stdio or http
+	Port           int    `mapstructure:"port"`
+	Host           string `mapstructure:"host"`
+	SessionTimeout int    `mapstructure:"session_timeout"` // Session timeout in minutes (default: 30)
 }
 
 // LogConfig contains logging configuration

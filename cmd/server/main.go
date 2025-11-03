@@ -1,13 +1,16 @@
-package main
+﻿package main
 
 import (
 	"flag"
 	"fmt"
 	"os"
+	"time"
 
-	"github.com/MOONL0323/go-standards-mcp-server/internal/analyzer"
-	"github.com/MOONL0323/go-standards-mcp-server/internal/config"
-	"github.com/MOONL0323/go-standards-mcp-server/internal/mcp"
+	"go-standards-mcp-server/internal/analyzer"
+	"go-standards-mcp-server/internal/config"
+	"go-standards-mcp-server/internal/mcp"
+	"go-standards-mcp-server/internal/usercontext"
+
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
@@ -22,7 +25,7 @@ var (
 
 const (
 	appName    = "go-standards-mcp-server"
-	appVersion = "1.0.0"
+	appVersion = "0.5.0"
 )
 
 func main() {
@@ -64,6 +67,15 @@ func main() {
 		zap.String("version", appVersion),
 		zap.String("mode", cfg.Server.Mode))
 
+	// Initialize session manager for multi-user support
+	sessionTimeout := 30 * time.Minute // Default 30 minutes
+	if cfg.Server.SessionTimeout > 0 {
+		sessionTimeout = time.Duration(cfg.Server.SessionTimeout) * time.Minute
+	}
+	sessionManager := usercontext.NewSessionManager("./storage", sessionTimeout)
+	logger.Info("Session manager initialized",
+		zap.Duration("timeout", sessionTimeout))
+
 	// Initialize analyzer
 	analyzer, err := analyzer.NewAnalyzer(cfg, logger)
 	if err != nil {
@@ -71,10 +83,14 @@ func main() {
 	}
 
 	// Initialize MCP server
-	server, err := mcp.NewServer(cfg, logger, analyzer)
+	server, err := mcp.NewServer(cfg, logger, analyzer, sessionManager)
 	if err != nil {
 		logger.Fatal("Failed to initialize MCP server", zap.Error(err))
 	}
+
+	// Log session statistics
+	logger.Info("Server ready",
+		zap.Int("active_sessions", sessionManager.GetActiveSessionCount()))
 
 	// Start server
 	if err := server.Serve(); err != nil {

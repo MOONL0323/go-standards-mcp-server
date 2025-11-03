@@ -1,4 +1,4 @@
-package service
+﻿package service
 
 import (
 	"bytes"
@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/MOONL0323/go-standards-mcp-server/internal/converter"
-	"github.com/MOONL0323/go-standards-mcp-server/internal/parser"
-	"github.com/MOONL0323/go-standards-mcp-server/internal/storage"
+	"go-standards-mcp-server/internal/converter"
+	"go-standards-mcp-server/internal/parser"
+	"go-standards-mcp-server/internal/storage"
 	"go.uber.org/zap"
 )
 

@@ -1,0 +1,115 @@
+# Multi-User Server Configuration
+
+server:
+  # Server mode: single-user or multi-user
+  mode: multi-user
+  
+  # Server listening address
+  host: 0.0.0.0
+  port: 8080
+  
+  # Logging
+  log_level: info
+  log_file: /var/log/go-standards/server.log
+
+storage:
+  # Base directory for all storage
+  base_dir: /var/lib/go-standards
+  
+  # Shared resources directory (templates, documents, configs)
+  shared_dir: /var/lib/go-standards/shared
+  
+  # User workspaces directory
+  user_dir: /var/lib/go-standards/users
+  
+  # Storage limits per user
+  limits:
+    max_file_size: 10485760        # 10MB per file
+    max_files_per_user: 100        # Max files per user
+    disk_quota_per_user: 1073741824  # 1GB per user
+
+session:
+  # Session timeout in seconds (default: 3600 = 1 hour)
+  timeout: 3600
+  
+  # Cleanup interval in seconds (default: 600 = 10 minutes)
+  cleanup_interval: 600
+  
+  # Maximum sessions per user
+  max_sessions_per_user: 5
+
+isolation:
+  # Enable per-user isolation for these directories
+  temp_dir_per_user: true
+  cache_dir_per_user: true
+  history_dir_per_user: true
+  reports_dir_per_user: true
+  git_config_per_user: true
+  
+  # Shared resources (accessible by all users)
+  shared_documents: true
+  shared_templates: true
+  shared_configs: true
+
+security:
+  # Enable user authentication
+  enable_auth: false
+  
+  # Authentication method: api_key, jwt, oauth2
+  auth_method: api_key
+  
+  # API keys (only if auth_method is api_key)
+  api_keys:
+    - key: "your-api-key-here"
+      user_id: "admin"
+      description: "Admin user"
+    - key: "demo-key-123"
+      user_id: "demo"
+      description: "Demo user"
+
+# Analysis configuration
+analysis:
+  # Default standard
+  default_standard: standard
+  
+  # Enable parallel analysis
+  parallel: true
+  
+  # Max concurrent analyses per user
+  max_concurrent_per_user: 3
+  
+  # Analysis timeout (seconds)
+  timeout: 300
+
+# Git integration
+git:
+  # Enable git incremental checking
+  enabled: true
+  
+  # Default base branch
+  default_base_branch: origin/main
+  
+  # Enable hooks by default
+  auto_install_hooks: false
+
+# Monitoring
+monitoring:
+  # Enable metrics
+  enabled: true
+  
+  # Prometheus metrics endpoint
+  metrics_path: /metrics
+  
+  # Health check endpoint
+  health_path: /health
+
+# Resource cleanup
+cleanup:
+  # Auto cleanup temporary files (days)
+  temp_files_ttl: 1
+  
+  # Auto cleanup old reports (days)
+  reports_ttl: 30
+  
+  # Auto cleanup analysis history (days)
+  history_ttl: 90

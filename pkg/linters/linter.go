@@ -1,9 +1,9 @@
-package linters
+﻿package linters
 
 import (
 	"context"
 
-	"github.com/MOONL0323/go-standards-mcp-server/pkg/models"
+	"go-standards-mcp-server/pkg/models"
 )
 
 // Linter is the interface that all linters must implement

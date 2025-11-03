@@ -1,308 +1,521 @@
 # Go Standards MCP Server
 
-[![Go Version](https://img.shields.io/badge/Go-1.21+-00ADD8?style=flat&logo=go)](https://go.dev/)
-[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![MCP](https://img.shields.io/badge/MCP-Compatible-green.svg)](https://modelcontextprotocol.io/)
+**[中文文档](README_CN.md)** | English
 
-基于 Model Context Protocol 的 Go 代码质量检测工具，集成 golangci-lint 和 go vet，遵循 Effective Go、Google Go Style Guide 等业界标准。
+A Model Context Protocol (MCP) service for intelligent Go code quality analysis, integrating industry-standard linters with custom rule engines.
 
-## 特性
+## Features
 
-- **多层次分析**：支持代码片段、文件、项目三个级别
-- **标准化配置**：提供 strict、standard、relaxed 三种预设模板
-- **两种使用方式**：MCP 服务器模式（IDE 集成）+ CLI 命令行模式
-- **详细报告**：JSON 和 Markdown 格式输出
-- **工具链集成**：golangci-lint (40+ linters) 和 go vet
+- **MCP Protocol**: Seamless integration with Claude Desktop and other MCP clients
+- **Dual Analysis Modes**: Full repository scan or Git-based incremental detection
+- **Custom Rules**: Upload and manage team-specific coding standards
+- **Multi-User Ready**: Designed for shared deployment with isolated user contexts
+- **CLI + Server**: Flexible deployment options
 
-## 快速开始
+## Quick Start
 
-### 安装
+### Prerequisites
+
+- Go 1.21+
+- golangci-lint (optional, for enhanced analysis)
+
+### Installation
 
 ```bash
-# 克隆项目
-git clone https://github.com/MOONL0323/go-standards-mcp-server.git
-cd go-standards-mcp-server
+# Build both server and CLI
+make build-all
 
-# 安装依赖
-go mod download
-
-# 构建
-make build-all    # 构建 MCP 服务器和 CLI 工具
+# Or build separately
+make build-server  # MCP server
+make build-cli     # Standalone CLI tool
 ```
 
-构建完成后：
-- MCP 服务器：`bin/mcp-server`
-- CLI 工具：`bin/go-standards`
+### MCP Server Setup
 
-### 使用方式
-
-#### 方式一：MCP 模式（Cursor IDE 集成）
-
-**1. 配置 Cursor**
-
-在 Cursor 设置中添加：
+Configure Claude Desktop (`%APPDATA%\Claude\claude_desktop_config.json`):
 
 ```json
 {
   "mcpServers": {
     "go-standards": {
-      "command": "/your/path/to/bin/mcp-server"
+      "command": "D:\\path\\to\\bin\\mcp-server.exe",
+      "args": []
     }
   }
 }
 ```
 
-**2. 重启 Cursor**
-
-**3. 开始使用**
-
-```
-@go-standards 检查当前文件
-@go-standards 用 strict 模式分析代码
-@go-standards health_check
-```
-
-#### 方式二：CLI 模式（命令行）
-
-**查看帮助**
+### CLI Usage
 
 ```bash
-./bin/go-standards --help
-./bin/go-standards -help    # 查看详细帮助
+# Full analysis
+go-standards-cli --path ./myproject
+
+# Incremental analysis (Git changes only)
+go-standards-cli --path ./myproject --incremental
+
+# Custom config
+go-standards-cli --path ./myproject --config rules.yaml
 ```
 
-**基本用法**
+## Usage Guide
+
+### 1. Full Code Analysis
+
+Analyze an entire Go project with default settings:
+
+**Using MCP Client (Claude Desktop):**
+
+```
+Please analyze the Go code at /path/to/project using analyze_go_code tool
+```
+
+**Using CLI:**
 
 ```bash
-# 分析单个文件
-./bin/go-standards -file main.go
-
-# 分析整个项目
-./bin/go-standards -project . -standard strict
-
-# Markdown 格式输出
-./bin/go-standards -file main.go -format markdown
-
-# 分析代码片段
-./bin/go-standards -code 'package main
-func main() {
-    x := 42
-}'
+go-standards-cli --path /path/to/project
 ```
 
-## 分析模式
+**With specific linters:**
 
-| 模式 | 复杂度阈值 | 覆盖率要求 | 适用场景 |
-|------|-----------|-----------|---------|
-| **strict** | ≤ 5 | ≥ 85% | 生产环境、关键系统 |
-| **standard** | ≤ 10 | ≥ 70% | 日常开发（推荐） |
-| **relaxed** | ≤ 15 | ≥ 60% | 原型开发、快速迭代 |
+```json
+{
+  "path": "/path/to/project",
+  "mode": "full",
+  "linters": ["golangci-lint", "govet"]
+}
+```
 
-## 检测内容
+**Expected output:**
+- Issue count by severity (error, warning, info)
+- Detailed issue list with file location and line number
+- Suggested fixes and best practices
+- Overall quality score
 
-- 未使用的变量和函数
-- 未检查的错误
-- 代码复杂度
-- 代码格式问题
-- 潜在 bug
-- 性能问题
-- 安全漏洞
+### 2. Git Incremental Analysis
 
-## 实际应用
+Only analyze files that have changed in Git, significantly faster for large projects.
 
-### Git Pre-commit Hook
+#### 2.1 Quick Check if Project is Git Repository
 
 ```bash
-#!/bin/bash
-files=$(git diff --cached --name-only --diff-filter=ACM | grep '\.go$')
-for file in $files; do
-    ./bin/go-standards -file "$file" || exit 1
-done
+# Using CLI
+go-standards-cli --path /path/to/project --git-check
+
+# Or use git_check tool in MCP
 ```
 
-### CI/CD 集成
-
-```yaml
-# GitHub Actions
-- name: Code Quality Check
-  run: ./bin/go-standards -project . -standard strict -format markdown > report.md
+**Response:**
+```json
+{
+  "is_git_repo": true,
+  "path": "/path/to/project",
+  "message": "This is a valid Git repository"
+}
 ```
 
-### 批量分析
+#### 2.2 Enable Git Integration
+
+**Step 1: Enable Git integration for your project**
 
 ```bash
-find . -name "*.go" -not -path "./vendor/*" -exec ./bin/go-standards -file {} \;
+# Using CLI
+go-standards-cli --path /path/to/project --git-enable
+
+# Or use git_config tool in MCP with action="enable"
 ```
 
-## 自定义配置
+This creates a `.go-standards.json` config file in your project root:
 
-### 方式一：本地配置文件（CLI 模式）
+```json
+{
+  "enabled": true,
+  "auto_commit": false,
+  "auto_push": false,
+  "base_branch": "origin/main",
+  "fail_on_error": true,
+  "hooks_installed": false
+}
+```
 
-创建 `.golangci.yml` 文件：
+**Step 2: Configure Git integration (optional)**
+
+```bash
+# Set base branch for comparison
+go-standards-cli --path /path/to/project --git-config \
+  --base-branch main
+
+# Configure via git_config tool
+```
+
+**Full configuration options:**
+
+```json
+{
+  "action": "set",
+  "path": "/path/to/project",
+  "config": {
+    "enabled": true,
+    "base_branch": "main",
+    "auto_commit": true,
+    "auto_push": false,
+    "config_file": ".golangci.yml",
+    "fail_on_error": true
+  }
+}
+```
+
+#### 2.3 Run Incremental Analysis
+
+**Analyze staged files (before commit):**
+
+```bash
+go-standards-cli --path /path/to/project --incremental --mode staged
+```
+
+**Analyze modified files (working directory):**
+
+```bash
+go-standards-cli --path /path/to/project --incremental --mode modified
+```
+
+**Analyze files changed from a branch:**
+
+```bash
+go-standards-cli --path /path/to/project --incremental \
+  --mode branch --base main
+```
+
+**Using MCP tool:**
+
+```json
+{
+  "path": "/path/to/project",
+  "mode": "incremental",
+  "linters": ["golangci-lint"]
+}
+```
+
+#### 2.4 Install Git Hooks (Auto-check on commit/push)
+
+```bash
+# Install pre-commit hook
+go-standards-cli --path /path/to/project --install-hooks commit
+
+# Install pre-push hook
+go-standards-cli --path /path/to/project --install-hooks push
+
+# Install both
+go-standards-cli --path /path/to/project --install-hooks all
+```
+
+After installation, the tool will automatically run when you:
+- `git commit` - checks staged files
+- `git push` - checks files changed from base branch
+
+**Hook behavior:**
+- PASS: If no issues, commit/push proceeds normally
+- FAIL: If issues found, commit/push is blocked and issues are displayed
+- Configure `fail_on_error: false` to allow commits with warnings
+
+### 3. Custom Coding Standards
+
+Upload your team's coding standards and auto-generate linter configs.
+
+#### 3.1 Upload Standard Document
+
+**Supported formats:** PDF, Markdown, Text
+
+```bash
+# Using CLI
+go-standards-cli --upload-document /path/to/team-standard.pdf \
+  --name "team-v1" \
+  --description "Company Go coding standards v1.0"
+
+# Using MCP upload_document tool
+```
+
+**What happens:**
+1. Document is parsed and analyzed
+2. Rules are automatically extracted
+3. `.golangci.yml` config is generated
+4. Config is saved to `storage/shared/configs/`
+
+#### 3.2 Use Custom Standard for Analysis
+
+```bash
+go-standards-cli --path /path/to/project --config team-v1
+```
+
+#### 3.3 List Available Standards
+
+```bash
+go-standards-cli --list-standards
+
+# Or use list_standards MCP tool
+```
+
+**Output:**
+```
+Available Coding Standards:
+1. strict - Highest standards (complexity ≤ 5, coverage ≥ 85%)
+2. standard - Balanced standards (complexity ≤ 10, coverage ≥ 70%)
+3. relaxed - Basic standards (complexity ≤ 15, coverage ≥ 60%)
+4. team-v1 - Company Go coding standards v1.0
+```
+
+### 4. Advanced Configuration
+
+#### 4.1 Custom Linter Configuration
+
+Create `.golangci.yml` in your project root:
 
 ```yaml
 linters:
   enable:
     - gofmt
+    - golint
     - govet
-    - staticcheck
     - errcheck
-
+    - staticcheck
+    - gosec
+  
 linters-settings:
   gocyclo:
     min-complexity: 10
   govet:
     check-shadowing: true
+  errcheck:
+    check-type-assertions: true
+
+issues:
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - gocyclo
 ```
 
-使用：
+#### 4.2 Multi-Project Batch Analysis
 
 ```bash
-./bin/go-standards -project . -config .golangci.yml
+# Analyze multiple projects
+go-standards-cli --batch \
+  --projects "project1,project2,project3" \
+  --output batch-report.json
 ```
 
-### 方式二：上传团队配置（MCP 模式）
+#### 4.3 CI/CD Integration
 
-#### 方法 A：上传 YAML 配置（推荐）
+**GitHub Actions example:**
 
-```javascript
-// 直接上传 golangci-lint 配置
-@go-standards manage_config {
-  action: "upload",
-  name: "team-standard",
-  description: "团队代码规范 v1.0",
-  content: "... golangci-lint YAML 内容 ..."
+```yaml
+name: Code Quality Check
+
+on: [push, pull_request]
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      
+      - name: Install go-standards
+        run: |
+          wget https://github.com/MOONL0323/go-standards-mcp-server/releases/latest/download/go-standards-cli
+          chmod +x go-standards-cli
+      
+      - name: Run analysis
+        run: |
+          ./go-standards-cli --path . --incremental --mode branch --base origin/main
+```
+
+**GitLab CI example:**
+
+```yaml
+code_quality:
+  script:
+    - go-standards-cli --path . --incremental
+  only:
+    - merge_requests
+```
+
+## Architecture
+
+```mermaid
+flowchart TB
+    subgraph Clients[MCP Clients Layer]
+        Claude[Claude Desktop]
+        VSCode[VS Code Extension]
+        Other[Other MCP Clients]
+    end
+
+    subgraph Server[Go Standards MCP Server]
+        direction TB
+        
+        subgraph Protocol[MCP Protocol Layer]
+            Tools[MCP Tools: analyze_go_code, git_check/config, list_standards, upload_document, get/set_config]
+            Resources[Resources: standards, configs]
+        end
+
+        subgraph Service[Service Layer]
+            Analyzer[Analyzer Engine]
+            DocService[Document Service]
+            GitDetector[Git Detector]
+            ConfigMgr[Config Manager]
+            StorageMgr[Storage Manager]
+            SessionMgr[Session Manager]
+        end
+
+        subgraph Linters[Linter Integration]
+            Golangci[golangci-lint]
+            GoVet[go vet]
+            StaticCheck[staticcheck]
+        end
+    end
+
+    subgraph Storage[Storage Layer]
+        Shared[Shared: checklists, configs, templates]
+        UserData[User Isolated: history, settings, reports]
+    end
+
+    Claude -->|stdio| Protocol
+    VSCode -->|stdio| Protocol
+    Other -->|http/sse| Protocol
+
+    Protocol --> Service
+    Service --> Linters
+    Service --> Storage
+
+    classDef serverStyle fill:#e1f5ff,stroke:#0288d1,stroke-width:2px
+    classDef protocolStyle fill:#fff3e0,stroke:#f57c00,stroke-width:2px
+    classDef serviceStyle fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+    classDef linterStyle fill:#e8f5e9,stroke:#388e3c,stroke-width:2px
+    classDef storageStyle fill:#fce4ec,stroke:#c2185b,stroke-width:2px
+
+    class Server serverStyle
+    class Protocol protocolStyle
+    class Service serviceStyle
+    class Linters linterStyle
+    class Storage storageStyle
+```
+
+**Architecture Components:**
+
+- **MCP Protocol Layer**: 8 tools for code analysis, git integration, and configuration management
+- **Service Layer**: Core business logic with parallel execution, caching, and session management
+- **Linter Integration**: golangci-lint (40+ checkers), go vet, staticcheck
+- **Storage Layer**: Shared resources and user-isolated data with 30-minute session timeout
+
+## MCP Tools
+
+### `analyze_go_code`
+Analyze Go code with configurable linters and rules.
+
+**Parameters:**
+- `path` (required): Target directory
+- `mode` (optional): `"full"` or `"incremental"` (default: `"full"`)
+- `linters` (optional): e.g., `["golangci-lint", "govet"]`
+- `config` (optional): Custom config file path
+
+**Example:**
+```json
+{
+  "path": "/path/to/project",
+  "mode": "incremental",
+  "linters": ["golangci-lint"]
 }
 ```
 
-#### 方法 B：上传规范文档（AI 自动转换）🆕
+### `git_check`
+Quick check if a path is a Git repository.
 
-```javascript
-// 1. 上传 PDF/TXT/Markdown 格式的团队规范文档
-@go-standards upload_document {
-  content: "团队代码规范\n\n1. 函数复杂度≤10\n2. 必须检查所有错误...",
-  file_name: "team-standard.md",
-  name: "team-standard-v1",
-  description: "团队代码规范 2025"
-}
-// 系统自动解析文档并转换为 golangci-lint 配置
+### `list_standards`
+List all available coding standard documents.
 
-// 2. 查看所有上传的文档
-@go-standards list_documents
+### `upload_document`
+Upload team coding standards (PDF/Markdown).
 
-// 3. 获取文档和生成的配置
-@go-standards get_document { id: "文档ID" }
+**Parameters:**
+- `file_path`: Document path
+- `doc_type`: `"checklist"` or `"guideline"`
+- `language`: `"go"`, `"python"`, etc.
 
-// 4. 使用转换后的配置进行检查
-@go-standards analyze_code {
-  project_dir: "./myproject",
-  standard: "custom",
-  config: "team-standard-v1"
-}
+### `get_config` / `set_config`
+Get or update Git integration configuration.
+
+## Configuration
+
+### Git Integration (`.go-standards-git.yaml`)
+
+```yaml
+git_integration:
+  enabled: true
+  base_branch: "main"
+  ignored_paths:
+    - "vendor/"
+    - "*.pb.go"
+  max_file_size_kb: 500
 ```
 
-配置文件示例：`examples/team-config.yaml`
+### Analysis Config
 
-详细使用指南：[DOCUMENT_UPLOAD_GUIDE.md](DOCUMENT_UPLOAD_GUIDE.md)
+```yaml
+linters:
+  golangci:
+    enabled: true
+    config_file: ".golangci.yml"
+  govet:
+    enabled: true
 
-## MCP 工具列表
-
-| 工具 | 说明 | 状态 |
-|-----|------|------|
-| `analyze_code` | 代码质量分析 | ✅ 生产可用 |
-| `manage_templates` | 管理配置模板 | ✅ 生产可用 |
-| `manage_config` | 自定义配置管理（YAML上传） | ✅ 生产可用 |
-| `upload_document` | 上传团队规范文档（PDF/TXT/MD）并自动转换 | ✅ 生产可用 |
-| `list_documents` | 列出所有上传的规范文档 | ✅ 生产可用 |
-| `get_document` | 获取文档详情和生成的配置 | ✅ 生产可用 |
-| `delete_document` | 删除上传的文档 | ✅ 生产可用 |
-| `health_check` | 服务健康检查 | ✅ 生产可用 |
-| `generate_report` | 生成分析报告 | 🔜 开发中 |
-| `batch_analyze` | 批量项目分析 | 🔜 开发中 |
-
-## 项目结构
-
-```
-go-standards-mcp-server/
-├── cmd/
-│   ├── server/          # MCP 服务器
-│   └── cli/             # CLI 工具
-├── internal/
-│   ├── mcp/            # MCP 协议实现
-│   ├── analyzer/       # 分析引擎
-│   ├── config/         # 配置管理
-│   └── storage/        # 配置存储
-├── pkg/
-│   ├── models/         # 数据模型
-│   └── linters/        # Linter 集成
-├── configs/
-│   ├── templates/      # 预设模板
-│   └── custom/         # 自定义配置存储
-└── examples/
-    └── team-config.yaml # 团队配置示例
+rules:
+  max_function_lines: 100
+  require_comments: true
 ```
 
-## 开发
+## Multi-User Deployment
+
+**Storage Structure:**
+```
+storage/
+├─ shared/              # Shared resources
+│   ├─ checklists/      # Team standards
+│   └─ configs/         # Default configs
+└─ users/{userID}/      # User-isolated data (future)
+    ├─ history/
+    └─ settings/
+```
+
+**Docker:**
+```bash
+docker build -t go-standards-mcp .
+docker run -d -p 8080:8080 \
+  -v /path/to/storage:/app/storage \
+  go-standards-mcp
+```
+
+## Development
 
 ```bash
-# 运行测试
-make test
-
-# 代码检查
-make lint
-
-# 构建
-make build-all
-
-# 清理
-make clean
+make test    # Run tests
+make lint    # Lint code
+make fmt     # Format code
+make help    # View commands
 ```
 
-## 常见问题
+## FAQ
 
-**Q: 如何在任何目录使用 CLI 工具？**
+**Q: How to use incremental analysis?**  
+A: Ensure your project is a Git repository, then use `"mode": "incremental"` or `--incremental` flag.
 
-添加到 PATH：
-```bash
-export PATH=$PATH:/path/to/bin
-# 或创建软链接
-sudo ln -s /path/to/bin/go-standards /usr/local/bin/
-```
+**Q: Can I use custom coding standards?**  
+A: Yes, use `upload_document` to upload team-specific standards.
 
-**Q: MCP 模式和 CLI 模式有什么区别？**
+**Q: Multi-language support?**  
+A: Currently focused on Go. Framework supports extension.
 
-- MCP 模式：集成到 IDE，实时分析，AI 辅助理解
-- CLI 模式：独立运行，适合脚本和自动化
+**Q: Multi-user deployment?**  
+A: Use Docker/Kubernetes with persistent storage. User isolation architecture is ready (see `internal/usercontext/`).
 
-**Q: 支持哪些 linter？**
+## License
 
-当前集成：golangci-lint、go vet  
-计划集成：staticcheck、gosec
-
-## 技术栈
-
-- **语言**: Go 1.21+
-- **MCP SDK**: [mark3labs/mcp-go](https://github.com/mark3labs/mcp-go)
-- **配置管理**: [spf13/viper](https://github.com/spf13/viper)
-- **日志系统**: [uber-go/zap](https://go.uber.org/zap)
-- **分析工具**: golangci-lint, go vet
-
-## 贡献
-
-欢迎提交 Issue 和 Pull Request！请阅读 [CONTRIBUTING.md](CONTRIBUTING.md) 了解开发规范。
-
-## 许可证
-
-MIT License - 详见 [LICENSE](LICENSE) 文件
-
-## 致谢
-
-- [mark3labs/mcp-go](https://github.com/mark3labs/mcp-go) - MCP Go SDK
-- [golangci-lint](https://github.com/golangci/golangci-lint) - Go linters 聚合工具
-- Go 社区的各类优秀工具和标准
-
----
-
-**版本**: v1.0.0  
-**作者**: MOONL0323  
-**仓库**: [github.com/MOONL0323/go-standards-mcp-server](https://github.com/MOONL0323/go-standards-mcp-server)
+MIT License - See [LICENSE](LICENSE)

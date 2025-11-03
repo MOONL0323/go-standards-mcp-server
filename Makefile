@@ -15,13 +15,13 @@ install: ## Install dependencies
 
 build: ## Build MCP server
 	@echo "Building MCP server..."
-	@mkdir -p $(BUILD_DIR)
+	@if not exist $(BUILD_DIR) mkdir $(BUILD_DIR)
 	go build -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd/server
 	@echo "Build complete: $(BUILD_DIR)/$(BINARY_NAME)"
 
 build-cli: ## Build CLI tool
 	@echo "Building CLI tool..."
-	@mkdir -p $(BUILD_DIR)
+	@if not exist $(BUILD_DIR) mkdir $(BUILD_DIR)
 	go build -o $(BUILD_DIR)/go-standards ./cmd/cli
 	@echo "Build complete: $(BUILD_DIR)/go-standards"
 
